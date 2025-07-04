@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 
 # Use the video device path directly (change if needed)
-video_device = "/dev/video1"
+video_device = "/dev/video5"
 
 cap = cv2.VideoCapture(video_device)
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, 864)
@@ -49,7 +49,7 @@ def find_boxes(mask, color_name, frame):
         approx = cv2.approxPolyDP(cnt, epsilon, True)
         side_count = len(approx)
 
-        if 4 <= side_count <= 6:  # Accept slightly curved/hexed shapes
+        if 4 <= side_count <= 8:  # Accept slightly curved/hexed shapes
             x, y, w, h = cv2.boundingRect(approx)
             aspect_ratio = w / float(h)
 

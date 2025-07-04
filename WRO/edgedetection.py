@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 
 # Use the video device path directly (change if needed)
-video_device = "/dev/video5"
+video_device = "/dev/video1"
 
 # Create VideoCapture object
 cap = cv2.VideoCapture(video_device)
