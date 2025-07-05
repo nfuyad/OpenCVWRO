@@ -1,8 +1,41 @@
 import cv2
 import numpy as np
+import serial
+import threading
+
+
+
+#Arduino an other
+ultra_data= [-1.0, -1.0, -1.0]
+roat= None
+thread_flag= True
+
+def read_serial():
+    global ultra_data
+    global roat
+    global thread_flag
+    ser = serial.Serial("/dev/ttyUSB0", 9600, timeout=1)
+    while thread_flag:
+        try:
+            line = ser.readline().decode('utf-8').strip()
+            # Expected format: F:45 L:100 R:98
+            line= line.split(",")
+            ultra_data[0]= float(line[0])
+            ultra_data[1]= float(line[1])
+            ultra_data[2]= float(line[2])
+
+            roat= float(line[3])
+
+            print(ultra_data)
+            
+
+        except Exception as e:
+            print("Serial error:", e)
+
+threading.Thread(target=read_serial, daemon=True).start()
 
 # Use the video device path directly (change if needed)
-video_device = "/dev/video5"
+video_device = "/dev/video1"
 
 # Create VideoCapture object
 cap = cv2.VideoCapture(video_device)
@@ -51,59 +84,93 @@ def find_boxes(mask, color_name, frame):
             boxes.append((x, y, w, h, color_name))
 
     return boxes
+def img_rec():
+    global thread_flag
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
 
-while True:
-    ret, frame = cap.read()
-    if not ret:
-        break
+        frame = cv2.resize(frame, (640, 480))
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
-    frame = cv2.resize(frame, (640, 480))
-    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        red_mask, green_mask = get_color_mask(hsv)
+        red_boxes = find_boxes(red_mask, "red", frame)
+        green_boxes = find_boxes(green_mask, "green", frame)
 
-    red_mask, green_mask = get_color_mask(hsv)
-    red_boxes = find_boxes(red_mask, "red", frame)
-    green_boxes = find_boxes(green_mask, "green", frame)
+        all_boxes = red_boxes + green_boxes
 
-    all_boxes = red_boxes + green_boxes
+        # Find closest box by bottom line
+        closest_box = None
+        max_bottom = -1
+        for (x, y, w, h, color) in all_boxes:
+            bottom_line = y + h
+            if bottom_line > max_bottom:
+                max_bottom = bottom_line
+                closest_box = (x, y, w, h, color)
 
-    # Find closest box by bottom line
-    closest_box = None
-    max_bottom = -1
-    for (x, y, w, h, color) in all_boxes:
-        bottom_line = y + h
-        if bottom_line > max_bottom:
-            max_bottom = bottom_line
-            closest_box = (x, y, w, h, color)
+        if closest_box:
+            x, y, w, h, color = closest_box
+            bottom = y + h
+            center_x = x + w // 2
+            frame_width = frame.shape[1]
 
-    if closest_box:
-        x, y, w, h, color = closest_box
-        bottom = y + h
-        center_x = x + w // 2
-        frame_width = frame.shape[1]
+            pseudo_distance = frame.shape[0] - bottom  # lower value = closer
 
-        pseudo_distance = frame.shape[0] - bottom  # lower value = closer
+            # Draw center point
+            cv2.circle(frame, (center_x, y + h // 2), 5, (255, 255, 255), -1)
+            cv2.putText(frame, f"Closest: {color}, pseudo-dist={pseudo_distance}", (20, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
-        # Draw center point
-        cv2.circle(frame, (center_x, y + h // 2), 5, (255, 255, 255), -1)
-        cv2.putText(frame, f"Closest: {color}, pseudo-dist={pseudo_distance}", (20, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+            # Check position
+            if color == "red":
+                if center_x > frame_width // 4:
+                    cv2.putText(frame, "Move camera RIGHT", (20, 60), cv2.FONT_HERSHEY_SIMPLEX,
+                                0.7, (0, 0, 255), 2)
+                    print(">> Move camera RIGHT")
+                else:
+                    cv2.putText(frame, "Box in left fourth", (20, 60), cv2.FONT_HERSHEY_SIMPLEX,
+                                0.7, (0, 255, 0), 2)
+            elif color == "green":
+                if 0 < center_x < (int(frame_width*(3/4))) :
+                    cv2.putText(frame, "Move camera Left", (20, 60), cv2.FONT_HERSHEY_SIMPLEX,
+                                0.7, (0, 0, 255), 2)
+                    print(">> Move camera LEFT")
+                else:
+                    cv2.putText(frame, "Box in right fourth", (20, 60), cv2.FONT_HERSHEY_SIMPLEX,
+                                0.7, (0, 255, 0), 2)
 
-        # Check position
-        if center_x > frame_width // 4:
-            cv2.putText(frame, "Move camera RIGHT", (20, 60), cv2.FONT_HERSHEY_SIMPLEX,
-                        0.7, (0, 0, 255), 2)
-            print(">> Move camera RIGHT")
+        cv2.imshow("Frame", frame)
+        cv2.imshow("Red Mask", red_mask)
+        cv2.imshow("Green Mask", green_mask)
+
+        key = cv2.waitKey(1)
+        if key == ord('q'):
+            thread_flag= False
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
+
+
+def sesnsorgo():
+    global ultra_data
+
+    if ultra_data[0]< 10:
+        #Obstacle ahead
+        if ultra_data[1]> 10:
+            print("Turn Left")
+        elif ultra_data[2]> 10:
+            print("Turn Right")
         else:
-            cv2.putText(frame, "Box in left fourth", (20, 60), cv2.FONT_HERSHEY_SIMPLEX,
-                        0.7, (0, 255, 0), 2)
+            print("Go back")
 
-    cv2.imshow("Frame", frame)
-    cv2.imshow("Red Mask", red_mask)
-    cv2.imshow("Green Mask", green_mask)
 
-    key = cv2.waitKey(1)
-    if key == ord('q'):
-        break
 
-cap.release()
-cv2.destroyAllWindows()
+#Drive instructions
+
+def send_drive_command(pwm, angle):
+    ser = serial.Serial("/dev/ttyUSB0", 9600, timeout=1)
+    cmd = f"{pwm},{angle}\n"
+    ser.write(cmd.encode())
+    print("Sent:", cmd.strip())
